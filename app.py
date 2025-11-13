@@ -1,10 +1,5 @@
 import streamlit as st
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain_community.llms import HuggingFaceHub
-from langchain.chains.retrieval_qa.base import RetrievalQA
-from langchain.prompts import PromptTemplate
-from langchain.schema import Document
+import google.generativeai as genai
 
 # Page config
 st.set_page_config(page_title="Nyay Sahayak", page_icon="⚖️", layout="wide")
@@ -16,8 +11,8 @@ st.markdown("""
     background-color: #FF6B35;
     color: white;
     font-weight: bold;
-    border-radius: 8px;
     padding: 10px 20px;
+    border-radius: 8px;
 }
 .answer-box {
     background-color: #E8F4F8;
@@ -29,168 +24,136 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Header
-col1, col2 = st.columns([1, 10])
-with col1:
-    st.markdown("# ⚖️")
-with col2:
-    st.title("Nyay Sahayak")
-    st.markdown("*Your AI-Powered Legal Assistant for India*")
+st.markdown("# ⚖️ Nyay Sahayak")
+st.markdown("*Your AI-Powered Legal Assistant for India*")
 
 # Sidebar
 with st.sidebar:
-    st.header("📚 About Nyay Sahayak")
-    st.write("""
-    This AI assistant helps you understand Indian law in simple language.
-    
-    **Features:**
-    - Ask legal questions in plain language
-    - Get instant answers based on Indian laws
-    - Understand your rights and legal procedures
-    """)
+    st.header("📚 About")
+    st.write("AI assistant for understanding Indian law in simple language.")
     
     st.markdown("---")
     st.subheader("🎯 Quick Questions")
     
-    quick_questions = [
-        "How to file FIR?",
-        "What are tenant rights?",
-        "Consumer complaint process?",
-        "Section 420 IPC?",
-        "Marriage registration?"
+    quick_qs = [
+        "How to file an FIR?",
+        "What are tenant rights in India?",
+        "How to file consumer complaint?",
+        "What is Section 420 IPC?",
+        "Marriage registration process?"
     ]
+    
+    # API key input
+    api_key = st.text_input("Google API Key (optional)", type="password", help="Get free key from ai.google.dev")
 
-# Initialize session state
-if 'selected_question' not in st.session_state:
-    st.session_state.selected_question = ""
+# Legal knowledge base
+legal_kb = """
+INDIAN LEGAL KNOWLEDGE BASE:
 
-# Load QA system
-@st.cache_resource
-def load_qa_system():
-    try:
-        # Initialize embeddings
-        embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
-        
-        # Legal knowledge base
-        legal_docs = [
-            Document(
-                page_content="Section 420 of the Indian Penal Code deals with cheating and dishonestly inducing delivery of property. The punishment for this offense can be imprisonment up to 7 years and a fine. This section is commonly invoked in fraud cases.",
-                metadata={"source": "Indian Penal Code", "section": "420"}
-            ),
-            Document(
-                page_content="To file an FIR (First Information Report), visit the nearest police station. You can file it orally or in writing. The police are legally obligated to register your complaint under Section 154 of the Code of Criminal Procedure (CrPC). You have the right to receive a copy of the FIR.",
-                metadata={"source": "Code of Criminal Procedure", "section": "154"}
-            ),
-            Document(
-                page_content="Tenant rights in India include: right to receive rent receipts, right to request essential repairs, protection from arbitrary eviction under various Rent Control Acts. Notice periods vary by state law, typically 15-30 days. Landlords cannot forcefully evict without court orders.",
-                metadata={"source": "Rent Control Acts", "section": "General"}
-            ),
-            Document(
-                page_content="Consumer complaints can be filed in: District Consumer Forum (claims up to ₹50 lakhs), State Consumer Commission (₹50 lakhs to ₹2 crores), and National Consumer Commission (above ₹2 crores). The Consumer Protection Act 2019 provides these remedies. Complaints can be filed online through the e-Daakhil portal.",
-                metadata={"source": "Consumer Protection Act", "section": "2019"}
-            ),
-            Document(
-                page_content="Marriage registration in India varies by religion. Under the Hindu Marriage Act, registration is required within 30 days of marriage. Required documents include: passport-size photos, age proof, address proof, marriage invitation card, and witnesses. Registration can be done at the local registrar's office.",
-                metadata={"source": "Hindu Marriage Act", "section": "Registration"}
-            ),
-            Document(
-                page_content="The Right to Information (RTI) Act 2005 allows Indian citizens to request information from public authorities. File an RTI application with a ₹10 fee (₹2 for BPL). Public authorities must respond within 30 days. RTI can be filed online or offline to the concerned Public Information Officer (PIO).",
-                metadata={"source": "RTI Act", "section": "2005"}
-            ),
-            Document(
-                page_content="Domestic violence victims can file complaints under the Protection of Women from Domestic Violence Act 2005. Magistrates can issue protection orders, residence orders, monetary relief, and custody orders. Complaints can be filed by the victim or on her behalf. Free legal aid is available.",
-                metadata={"source": "DV Act", "section": "2005"}
-            ),
-            Document(
-                page_content="Labour laws in India protect workers' rights including: minimum wages as per state government notifications, maximum working hours (9 hours per day, 48 hours per week), mandatory paid leave, overtime payment, and safe working conditions. The Code on Wages 2019 consolidates these provisions.",
-                metadata={"source": "Labour Laws", "section": "Code on Wages 2019"}
-            ),
-        ]
-        
-        # Create vector store
-        vectorstore = FAISS.from_documents(legal_docs, embeddings)
-        
-        # Initialize LLM
-        llm = HuggingFaceHub(
-            repo_id="google/flan-t5-large",
-            model_kwargs={"temperature": 0.3, "max_length": 512}
-        )
-        
-        # Create prompt
-        prompt_template = """You are Nyay Sahayak, a helpful legal assistant for Indian citizens.
-Use the following legal information to answer the question clearly and simply.
+1. FIR Filing (Section 154 CrPC):
+- Visit nearest police station
+- Can be filed orally or in writing
+- Police must register your complaint
+- You get a free copy of FIR
+- Zero FIR can be filed at any station
 
-Legal Context: {context}
+2. Section 420 IPC (Cheating):
+- Deals with cheating and fraud
+- Punishment: Up to 7 years imprisonment and fine
+- Applies to dishonest property dealings
 
-Question: {question}
+3. Tenant Rights (Rent Control Acts):
+- Right to rent receipt
+- Right to request repairs
+- Protection from arbitrary eviction
+- Notice period: 15-30 days (varies by state)
+- Cannot be evicted without court order
 
-Provide a practical, easy-to-understand answer. Include relevant law sections where applicable.
+4. Consumer Complaints (Consumer Protection Act 2019):
+- District Forum: Claims up to ₹50 lakhs
+- State Commission: ₹50 lakhs to ₹2 crores
+- National Commission: Above ₹2 crores
+- Can file online via e-Daakhil portal
+- Free for claims under ₹5 lakhs
 
-Answer:"""
+5. Marriage Registration:
+- Hindu Marriage Act: Within 30 days
+- Documents: Photos, ID, address proof, invitation
+- Register at local registrar office
+- Certificate issued within 30 days
 
-        PROMPT = PromptTemplate(
-            template=prompt_template,
-            input_variables=["context", "question"]
-        )
-        
-        # Create QA chain
-        qa_chain = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=vectorstore.as_retriever(search_kwargs={"k": 2}),
-            return_source_documents=True,
-            chain_type_kwargs={"prompt": PROMPT}
-        )
-        
-        return qa_chain, vectorstore
-        
-    except Exception as e:
-        st.error(f"Error loading system: {str(e)}")
-        return None, None
+6. RTI Act 2005:
+- File application with ₹10 fee (₹2 for BPL)
+- Response within 30 days mandatory
+- Can be filed online or offline
 
-# Load system
-if 'qa_chain' not in st.session_state:
-    with st.spinner("🔄 Loading Nyay Sahayak AI..."):
-        qa_chain, vectorstore = load_qa_system()
-        if qa_chain:
-            st.session_state.qa_chain = qa_chain
-            st.session_state.vectorstore = vectorstore
-            st.success("✅ System ready!")
-        else:
-            st.error("Failed to load system. Please refresh.")
-            st.stop()
+7. Domestic Violence Act 2005:
+- File complaint with magistrate
+- Protection orders available
+- Free legal aid provided
+- Monetary relief possible
 
-# Quick question buttons in sidebar
+8. Labour Rights:
+- Minimum wages as per state law
+- Max 9 hours/day, 48 hours/week
+- Mandatory paid leave
+- Overtime payment required
+- Safe working conditions
+"""
+
+# Initialize session
+if 'selected_q' not in st.session_state:
+    st.session_state.selected_q = ""
+
+# Quick question buttons
 with st.sidebar:
-    for idx, question in enumerate(quick_questions):
-        if st.button(f"📌 {question}", key=f"quick_{idx}"):
-            st.session_state.selected_question = question
+    for i, q in enumerate(quick_qs):
+        if st.button(f"📌 {q}", key=f"q_{i}"):
+            st.session_state.selected_q = q
 
-# Main interface
+# Main input
 st.markdown("---")
-st.subheader("💬 Ask Your Legal Question")
+st.subheader("💬 Ask Your Question")
 
-user_question = st.text_input(
-    "Type your question:",
-    value=st.session_state.selected_question,
-    placeholder="Example: What are the steps to file a police complaint?",
-    key="main_input"
+question = st.text_input(
+    "Type your legal question:",
+    value=st.session_state.selected_q,
+    placeholder="Example: What are the steps to register a consumer complaint?"
 )
 
 col1, col2 = st.columns([1, 5])
 with col1:
-    ask_button = st.button("🔍 Get Answer", type="primary")
+    ask = st.button("🔍 Get Answer", type="primary")
 with col2:
     if st.button("🔄 Clear"):
-        st.session_state.selected_question = ""
+        st.session_state.selected_q = ""
         st.rerun()
 
 # Process question
-if ask_button and user_question:
+if ask and question:
     with st.spinner("🤔 Searching legal database..."):
         try:
-            result = st.session_state.qa_chain({"query": user_question})
+            # Use Google Gemini (free tier)
+            if api_key:
+                genai.configure(api_key=api_key)
+            else:
+                # Default demo key (limited usage)
+                genai.configure(api_key=st.secrets.get("GOOGLE_API_KEY", ""))
+            
+            model = genai.GenerativeModel('gemini-pro')
+            
+            prompt = f"""You are Nyay Sahayak, a legal assistant for Indian citizens.
+
+Use this legal knowledge to answer the question:
+
+{legal_kb}
+
+Question: {question}
+
+Provide a clear, simple answer in 2-3 paragraphs. Include relevant law sections.
+Answer:"""
+            
+            response = model.generate_content(prompt)
             
             # Display answer
             st.markdown("---")
@@ -198,40 +161,55 @@ if ask_button and user_question:
             
             st.markdown(f"""
             <div class="answer-box">
-                <p style="font-size: 16px; line-height: 1.8; color: #333;">
-                    {result['result']}
-                </p>
+                {response.text}
             </div>
             """, unsafe_allow_html=True)
             
-            # Display sources
-            if result.get('source_documents'):
-                with st.expander("📚 Legal Sources"):
-                    for i, doc in enumerate(result['source_documents'], 1):
-                        st.markdown(f"**Source {i}:** {doc.metadata.get('source', 'Legal Database')}")
-                        if 'section' in doc.metadata:
-                            st.markdown(f"*Section:* {doc.metadata['section']}")
-                        st.markdown(f"> {doc.page_content[:200]}...")
-                        st.markdown("---")
+            # Sources
+            with st.expander("📚 Sources Referenced"):
+                st.write("Indian Penal Code (IPC)")
+                st.write("Code of Criminal Procedure (CrPC)")
+                st.write("Consumer Protection Act 2019")
+                st.write("RTI Act 2005")
+                st.write("Various Rent Control Acts")
             
-            # Disclaimer
-            st.info("⚠️ **Legal Disclaimer:** This is AI-generated information for educational purposes only. For actual legal matters, please consult a qualified lawyer or legal professional.")
+            st.info("⚠️ **Disclaimer:** AI-generated for educational purposes. Consult a lawyer for actual legal matters.")
             
         except Exception as e:
-            st.error(f"Error: {str(e)}")
-            st.info("Please try rephrasing your question or select a quick question from the sidebar.")
+            # Fallback to simple matching if API fails
+            st.warning("Using offline knowledge base...")
+            
+            answer = "I can help with that! "
+            
+            if "fir" in question.lower():
+                answer += "To file an FIR: Visit your nearest police station. You can file it orally or in writing under Section 154 of CrPC. Police must register your complaint and give you a free copy."
+            elif "420" in question or "cheating" in question.lower():
+                answer += "Section 420 IPC deals with cheating and fraud. It involves dishonestly inducing someone to deliver property. Punishment can be up to 7 years imprisonment and fine."
+            elif "tenant" in question.lower() or "rent" in question.lower():
+                answer += "Tenant rights include: receiving rent receipts, requesting repairs, protection from arbitrary eviction. Notice period is typically 15-30 days. Landlords cannot evict without court order."
+            elif "consumer" in question.lower():
+                answer += "Consumer complaints: File in District Forum (up to ₹50L), State Commission (₹50L-₹2Cr), or National Commission (above ₹2Cr). Use e-Daakhil portal for online filing under Consumer Protection Act 2019."
+            elif "marriage" in question.lower():
+                answer += "Marriage registration under Hindu Marriage Act should be done within 30 days. Need: Photos, ID proof, address proof, marriage invitation. Visit local registrar office."
+            else:
+                answer += "Please ask about specific topics like FIR filing, consumer complaints, tenant rights, marriage registration, or specific IPC sections. Or select a quick question from the sidebar."
+            
+            st.markdown(f"""
+            <div class="answer-box">
+                {answer}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.info("⚠️ **Note:** For detailed answers, add a Google API key in the sidebar (free at ai.google.dev)")
 
-elif ask_button:
-    st.warning("⚠️ Please enter a question first.")
+elif ask:
+    st.warning("Please enter a question first!")
 
 # Footer
 st.markdown("---")
 st.markdown("""
-<div style="text-align: center; color: #666; padding: 20px;">
-    <p style="font-size: 18px; font-weight: bold;">Nyay Sahayak</p>
-    <p style="font-size: 14px;">Empowering Every Citizen with Accessible Justice</p>
-    <p style="font-size: 12px; color: #999;">
-        Developed by NyayTech Innovators | Walchand Institute of Technology, Solapur
-    </p>
+<div style="text-align: center; color: #666;">
+    <p><strong>Nyay Sahayak</strong> - Empowering Every Citizen with Accessible Justice</p>
+    <p style="font-size: 12px;">NyayTech Innovators | WIT Solapur</p>
 </div>
 """, unsafe_allow_html=True)
